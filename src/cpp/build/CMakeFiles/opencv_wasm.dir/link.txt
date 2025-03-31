@@ -1,0 +1,1 @@
+/Users/bytedance/emsdk/upstream/emscripten/em++   -s FORCE_FILESYSTEM=1 -s INITIAL_MEMORY=256MB -s EXIT_RUNTIME=1 -s EXPORTED_FUNCTIONS=['_detect_orb_features','_detect_objects_and_homography','_set_reference_image','_malloc','_free'] @CMakeFiles/opencv_wasm.dir/objects1.rsp -o opencv_wasm.js @CMakeFiles/opencv_wasm.dir/linkLibs.rsp

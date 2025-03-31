@@ -1,36 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+构建 opencvJs 参数：
+emcmake python3 ./platforms/js/build_js.py
+options:
+-h, --help show this help message and exit
+--opencv_dir OPENCV_DIR
+Opencv source directory (default is "../.." relative
+to script location)
+--emscripten_dir EMSCRIPTEN_DIR
+Path to Emscripten to use for build (deprecated in
+favor of 'emcmake' launcher)
+--build_wasm Build OpenCV.js in WebAssembly format
+--disable_wasm Build OpenCV.js in Asm.js format
+--disable_single_file
+Do not merge JavaScript and WebAssembly into one
+single file
+--threads Build OpenCV.js with threads optimization
+--simd Build OpenCV.js with SIMD optimization
+--build_test Build tests
+--build_perf Build performance tests
+--build_doc Build tutorials
+--build_loader Build OpenCV.js loader
+--clean_build_dir Clean build dir
+--skip_config Skip cmake config
+--config_only Only do cmake config
+--enable_exception Enable exception handling
+--cmake_option CMAKE_OPTION
+Append CMake options
+--build_flags BUILD_FLAGS
+Append Emscripten build options
+--build_wasm_intrin_test
+Build WASM intrin tests
+--config CONFIG Specify configuration file with own list of exported
+into JS functions
+--webnn Enable WebNN Backend
 
-## Getting Started
+构建 opencvJs - wasm 基础版：
+emcmake python3 ./platforms/js/build_js.py build_wasm --build_wasm --build_loader --disable_single_file
 
-First, run the development server:
+构建 opencvJs - asm.js：
+emcmake python3 ./platforms/js/build_js.py build_asm --disable_wasm --build_loader --disable_single_file --build_perf
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+构建 opencvJs - only simd：
+emcmake python3 ./platforms/js/build_js.py build_simd --simd --build_loader --disable_single_file --build_wasm_intrin_test --build_perf
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+构建 opencvJs - only threads：
+emcmake python3 ./platforms/js/build_js.py build_threads --threads --build_loader --disable_single_file --build_perf
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+构建 opencvJs - simdThreads：
+emcmake python3 ./platforms/js/build_js.py build_simd_threads --simd --threads --build_loader --disable_single_file --build_wasm_intrin_test --build_perf

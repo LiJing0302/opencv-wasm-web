@@ -1,0 +1,3 @@
+/Users/bytedance/opencv-wasm-web/src/cpp/build/CMakeFiles/opencv_wasm.dir
+/Users/bytedance/opencv-wasm-web/src/cpp/build/CMakeFiles/edit_cache.dir
+/Users/bytedance/opencv-wasm-web/src/cpp/build/CMakeFiles/rebuild_cache.dir

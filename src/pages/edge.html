@@ -1,0 +1,281 @@
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>目标识别与单应性变换演示</title>
+    <style>
+      .container {
+        display: flex;
+        gap: 20px;
+        margin-top: 20px;
+      }
+      video {
+        width: 640px;
+        height: 480px;
+      }
+      canvas {
+        border: 1px solid black;
+      }
+      .controls {
+        margin-bottom: 20px;
+      }
+      .controls button {
+        height: 48px;
+        margin-right: 10px;
+      }
+      #reference-image {
+        max-width: 200px;
+        max-height: 200px;
+        border: 1px solid #ccc;
+        margin-top: 10px;
+        display: none;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div>
+      <h1>目标识别与单应性变换演示</h1>
+      <div class="controls">
+        <button disabled id="switch-camera-btn">切换摄像头</button>
+        <input type="file" id="image-upload" accept="image/*">
+        <button id="upload-btn">上传参考图像</button>
+      </div>
+      <div>
+        <p>参考图像:</p>
+        <img id="reference-image" alt="参考图像">
+      </div>
+      <div class="container">
+        <video id="video" playsinline autoplay></video>
+        <canvas id="canvas" width="720"></canvas>
+      </div>
+    </div>
+
+    <script src="wasmFeatureDetect.js"></script>
+
+    <script type="text/javascript">
+      var Module = {};
+
+      var has_simd;
+      var has_threads;
+      var opencv_module_name = "opencv_wasm";
+      var wasmModuleLoaded = false;
+      var wasmModuleLoadedCallbacks = [];
+
+      Module.onRuntimeInitialized = function () {
+        wasmModuleLoaded = true;
+        for (var i = 0; i < wasmModuleLoadedCallbacks.length; i++) {
+          wasmModuleLoadedCallbacks[i]();
+        }
+      };
+      var opencvWasm = opencv_module_name + ".wasm";
+      var opencvJs = opencv_module_name + ".js";
+
+      fetch(opencvWasm)
+        .then((response) => response.arrayBuffer())
+        .then((buffer) => {
+          Module.wasmBinary = buffer;
+          var script = document.createElement("script");
+          script.src = opencvJs;
+          script.onload = function () {
+            console.log("Emscripten boilerplate loaded.");
+          };
+          document.body.appendChild(script);
+        });
+
+      var shouldFaceUser = true;
+      var stream = null;
+      var w = 720;
+      var h = 480;
+
+      var dst = null;
+      var resultarray = null;
+      var resultbuffer = null;
+      var referenceImageUploaded = false;
+
+      window.addEventListener("DOMContentLoaded", function () {
+        var isStreaming = false;
+        switchcamerabtn = document.getElementById("switch-camera-btn");
+        video = document.getElementById("video");
+        canvas = document.getElementById("canvas");
+        ctx = canvas.getContext("2d");
+        
+        // 图像上传相关元素
+        var imageUpload = document.getElementById("image-upload");
+        var uploadBtn = document.getElementById("upload-btn");
+        var referenceImage = document.getElementById("reference-image");
+        
+        // 上传参考图像
+        uploadBtn.addEventListener("click", function() {
+          if (imageUpload.files.length === 0) {
+            alert("请先选择一张图片");
+            return;
+          }
+          
+          var file = imageUpload.files[0];
+          var reader = new FileReader();
+          
+          reader.onload = function(e) {
+            // 显示上传的图像
+            referenceImage.src = e.target.result;
+            referenceImage.style.display = "block";
+            
+            // 创建一个临时图像对象来获取图像数据
+            var img = new Image();
+            img.onload = function() {
+              // 创建一个临时画布来获取图像数据
+              var tempCanvas = document.createElement("canvas");
+              var tempCtx = tempCanvas.getContext("2d");
+              tempCanvas.width = img.width;
+              tempCanvas.height = img.height;
+              
+              // 绘制图像到临时画布
+              tempCtx.drawImage(img, 0, 0);
+              
+              // 获取图像数据
+              var imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+              
+              if (wasmModuleLoaded) {
+                uploadReferenceImage(imageData);
+              } else {
+                wasmModuleLoadedCallbacks.push(function() {
+                  uploadReferenceImage(imageData);
+                });
+              }
+            };
+            img.src = e.target.result;
+          };
+          
+          reader.readAsDataURL(file);
+        });
+        
+        function uploadReferenceImage(imageData) {
+          // 分配内存
+          var refImagePtr = _malloc(imageData.data.length);
+          
+          // 复制图像数据到 WebAssembly 内存
+          HEAPU8.set(imageData.data, refImagePtr);
+          
+          // 调用 C++ 函数设置参考图像
+          _set_reference_image(refImagePtr, imageData.width, imageData.height);
+          
+          // 释放内存
+          _free(refImagePtr);
+          
+          referenceImageUploaded = true;
+          console.log("参考图像已上传");
+        }
+
+        // Wait until the video stream canvas play
+        video.addEventListener(
+          "canplay",
+          function (e) {
+            if (!isStreaming) {
+              if (video.videoWidth > 0)
+                h = video.videoHeight / (video.videoWidth / w);
+              canvas.setAttribute("width", w);
+              canvas.setAttribute("height", h);
+              isStreaming = true;
+            }
+          },
+          false
+        );
+
+        // Wait for the video to start to play
+        video.addEventListener("play", function () {
+          var id = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          var d = id.data;
+
+          if (wasmModuleLoaded) {
+            mallocAndCallSFilter();
+          } else {
+            wasmModuleLoadedCallbacks.push(mallocAndCallSFilter);
+          }
+
+          function mallocAndCallSFilter() {
+            if (dst != null) {
+              _free(dst);
+              dst = null;
+            }
+            dst = _malloc(d.length);
+            sFilter();
+          }
+        });
+
+        // check whether we can use facingMode
+        var supports = navigator.mediaDevices.getSupportedConstraints();
+        if (supports["facingMode"] === true) {
+          switchcamerabtn.disabled = false;
+        }
+
+        switchcamerabtn.addEventListener("click", function () {
+          if (stream == null) return;
+
+          stream.getTracks().forEach((t) => {
+            t.stop();
+          });
+
+          shouldFaceUser = !shouldFaceUser;
+          capture();
+        });
+
+        capture();
+      });
+
+      // 调用视频流展示视频
+      function capture() {
+        var constraints = {
+          audio: false,
+          video: {
+            width: 720,
+            height: 480,
+            facingMode: shouldFaceUser ? "user" : "environment",
+          },
+        };
+        navigator.mediaDevices
+          .getUserMedia(constraints)
+          .then(function (mediaStream) {
+            var video = document.querySelector("video");
+            stream = mediaStream;
+            video.srcObject = mediaStream;
+            video.onloadedmetadata = function (e) {
+              video.play();
+            };
+          })
+          .catch(function (err) {
+            console.log(err.message);
+          });
+      }
+
+      function detectEdges() {
+        var canvas = document.getElementById("canvas");
+        var ctx = canvas.getContext("2d");
+        // 获取画布上的图像数据
+        var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        var data = imageData.data;
+
+        // 将图像数据复制到 WebAssembly 内存
+        HEAPU8.set(data, dst);
+
+        // 调用目标识别和单应性变换函数
+        _detect_objects_and_homography(dst, dst, canvas.width, canvas.height);
+
+        // 从共享内存中读取处理后的图像数据
+        var result = HEAPU8.subarray(dst, dst + data.length);
+        imageData.data.set(result);
+        ctx.putImageData(imageData, 0, 0);
+      }
+
+      var sFilter = function () {
+        if (video.paused || video.ended) return;
+
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(video, 0, 0, w, h);
+
+        detectEdges();
+
+        window.requestAnimationFrame(sFilter);
+      };
+    </script>
+  </body>
+</html>
