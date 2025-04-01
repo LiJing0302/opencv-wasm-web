@@ -94,13 +94,13 @@ extern "C"
     Mat videoFrame; // 存储视频帧
 
     // ORB 特征检测器
-    Ptr<ORB> orb = ORB::create(500, 1.2f, 8,      // 金字塔层数（可以减少）
+    Ptr<ORB> orb = ORB::create(300, 1.2f, 4,      // 金字塔层数（可以减少）
                                31,                // 边缘阈值
                                0,                 // 第一层级
                                2,                 // WTA_K 点数
                                ORB::HARRIS_SCORE, // 使用 HARRIS 角点评分
                                31,                // 特征点描述符大小
-                               12);               // FAST 检测阈值); // ORB 特征检测器
+                               20);               // FAST 检测阈值); // ORB 特征检测器
     vector<KeyPoint>
         keyPoints_1;   // 模板图像的关键点
     Mat descriptors_1; // 模板图像的特征描述符
@@ -164,17 +164,24 @@ extern "C"
         {
             static int skip_frames = 0;
             if (++skip_frames < 2)
-            { // 每隔15帧才进行特征检测
+            { // 每隔2帧才进行特征检测
                 return false;
             }
             skip_frames = 0;
 
-            // 对输入图像进行降采样
+            // 对输入图像进行降采样 - 使用pyrDown更高效
             Mat resized;
-            resize(img, resized, Size(), 0.5, 0.5); // 降为原来的一半大小
+            pyrDown(img, resized);
 
-            // 对当前帧进行特征检测和匹配
+             // 增加预处理步骤：对图像进行直方图均衡化以增强对比度
+             Mat gray_resized;
+             cvtColor(resized, gray_resized, COLOR_BGRA2GRAY);
+             equalizeHist(gray_resized, gray_resized);
+ 
+
+            // 预先分配内存并减少特征点数量
             vector<KeyPoint> keyPoints_2;
+            keyPoints_2.reserve(300); // 根据ORB创建的最大特征点数
             Mat descriptors_2;
             orb->detectAndCompute(resized, Mat(), keyPoints_2, descriptors_2);
             if (keyPoints_2.size() >= 10) // 确保检测到足够的特征点
@@ -195,7 +202,6 @@ extern "C"
                 const float ratio_thresh = 0.75f;
                 vector<vector<DMatch>> knn_matches;
                 matcher->knnMatch(descriptors_2, descriptors_1, knn_matches, 2);
-
                 for (const auto &match : knn_matches)
                 {
                     if (match.size() < 2)
@@ -248,7 +254,6 @@ extern "C"
                             line(img, scene_corners[i], scene_corners[(i + 1) % 4],
                                  Scalar(0, 255, 0, 255), 2);
                         }
-
                         // 绘制特征点
                         for (const auto &kp : prev_keyPoints)
                         {
@@ -263,25 +268,6 @@ extern "C"
         }
         else
         {
-            // static int track_skip_frames = 0;
-            // if (++track_skip_frames < 2)
-            // {
-            //     // 跳帧时仍然绘制上一帧的跟踪结果
-            //     for (int i = 0; i < 4; i++)
-            //     {
-            //         line(img, curr_corners[i], curr_corners[(i + 1) % 4],
-            //              Scalar(0, 255, 0, 255), 2);
-            //     }
-
-            //     // 绘制跟踪点
-            //     for (const auto &kp : prev_keyPoints)
-            //     {
-            //         circle(img, kp, 3, Scalar(255, 0, 0, 255), -1);
-            //     }
-
-            //     return true;
-            // }
-            // track_skip_frames = 0;
             // 检查跟踪点是否在有效范围内
             bool valid_corners = true;
             // 检查跟踪点是否在有效范围内
@@ -380,60 +366,60 @@ extern "C"
                     prev_keyPoints = tracked_curr;
                     prev_corners = curr_corners;
 
-                    // if (!videoFrame.empty())
+                    if (!videoFrame.empty())
+                    {
+                        // 将视频帧转换为RGBA格式（如果需要）
+                        if (videoFrame.channels() != 4)
+                        {
+                            cvtColor(videoFrame, videoFrameRGBA, COLOR_BGR2BGRA);
+                        }
+                        else
+                        {
+                            videoFrameRGBA = videoFrame;
+                        }
+
+                        // 创建目标区域的四个角点
+                        std::vector<Point2f> videoCorners(4);
+                        videoCorners[0] = Point2f(0, 0);
+                        videoCorners[1] = Point2f(videoFrame.cols - 1, 0);
+                        videoCorners[2] = Point2f(videoFrame.cols - 1, videoFrame.rows - 1);
+                        videoCorners[3] = Point2f(0, videoFrame.rows - 1);
+
+                        // 计算从视频帧到检测区域的透视变换矩阵
+                        Mat perspectiveMatrix = getPerspectiveTransform(videoCorners, curr_corners);
+                        // 创建与原图相同大小的空白图像
+                        Mat warped = Mat::zeros(img.size(), CV_8UC4);
+
+                        // 对视频帧进行透视变换，将视频投影到检测到的区域
+                        warpPerspective(videoFrameRGBA, warped, perspectiveMatrix, img.size());
+
+                        // 创建掩码，确定要替换的区域
+                        Mat mask = Mat::zeros(img.size(), CV_8UC1);
+                        vector<vector<Point>> contours;
+                        vector<Point> contour;
+                        for (const auto &corner : curr_corners)
+                        {
+                            contour.push_back(Point(corner.x, corner.y));
+                        }
+                        contours.push_back(contour);
+                        fillPoly(mask, contours, Scalar(255));
+
+                        // 将变换后的视频与原图像合成
+                        warped.copyTo(img, mask);
+                    }
+
+                    // // 绘制跟踪结果
+                    // for (int i = 0; i < 4; i++)
                     // {
-                    //     // 将视频帧转换为RGBA格式（如果需要）
-                    //     if (videoFrame.channels() != 4)
-                    //     {
-                    //         cvtColor(videoFrame, videoFrameRGBA, COLOR_BGR2BGRA);
-                    //     }
-                    //     else
-                    //     {
-                    //         videoFrameRGBA = videoFrame;
-                    //     }
-
-                    //     // 创建目标区域的四个角点
-                    //     std::vector<Point2f> videoCorners(4);
-                    //     videoCorners[0] = Point2f(0, 0);
-                    //     videoCorners[1] = Point2f(videoFrame.cols - 1, 0);
-                    //     videoCorners[2] = Point2f(videoFrame.cols - 1, videoFrame.rows - 1);
-                    //     videoCorners[3] = Point2f(0, videoFrame.rows - 1);
-
-                    //     // 计算从视频帧到检测区域的透视变换矩阵
-                    //     Mat perspectiveMatrix = getPerspectiveTransform(videoCorners, curr_corners);
-                    //     // 创建与原图相同大小的空白图像
-                    //     Mat warped = Mat::zeros(img.size(), CV_8UC4);
-
-                    //     // 对视频帧进行透视变换，将视频投影到检测到的区域
-                    //     warpPerspective(videoFrameRGBA, warped, perspectiveMatrix, img.size());
-
-                    //     // 创建掩码，确定要替换的区域
-                    //     Mat mask = Mat::zeros(img.size(), CV_8UC1);
-                    //     vector<vector<Point>> contours;
-                    //     vector<Point> contour;
-                    //     for (const auto &corner : curr_corners)
-                    //     {
-                    //         contour.push_back(Point(corner.x, corner.y));
-                    //     }
-                    //     contours.push_back(contour);
-                    //     fillPoly(mask, contours, Scalar(255));
-
-                    //     // 将变换后的视频与原图像合成
-                    //     warped.copyTo(img, mask);
+                    //     line(img, curr_corners[i], curr_corners[(i + 1) % 4],
+                    //          Scalar(0, 255, 0, 255), 2);
                     // }
 
-                    // 绘制跟踪结果
-                    for (int i = 0; i < 4; i++)
-                    {
-                        line(img, curr_corners[i], curr_corners[(i + 1) % 4],
-                             Scalar(0, 255, 0, 255), 2);
-                    }
-
-                    // 绘制跟踪点
-                    for (const auto &kp : tracked_curr)
-                    {
-                        circle(img, kp, 3, Scalar(255, 0, 0, 255), -1);
-                    }
+                    // // 绘制跟踪点
+                    // for (const auto &kp : tracked_curr)
+                    // {
+                    //     circle(img, kp, 3, Scalar(255, 0, 0, 255), -1);
+                    // }
 
                     return true;
                 }
